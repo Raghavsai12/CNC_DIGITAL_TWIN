@@ -4,7 +4,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const mqtt = require('mqtt');
 const cors = require('cors');
-const mongoose = require('mongoose'); // <-- New Mongoose import
+const mongoose = require('mongoose'); 
 
 const app = express();
 app.use(cors());
@@ -22,13 +22,12 @@ const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL || 'mqtt://broker.hivemq.com
 const MQTT_TOPIC = process.env.MQTT_TOPIC || 'griet/cnc/telemetry';
 const IS_MOCK_MODE = process.env.MOCK === 'true';
 
-// -------------------------------------------------------------------
 // DATABASE INTEGRATION (MongoDB)
-// -------------------------------------------------------------------
+
 console.log(`[DB] Connecting to MongoDB...`);
 mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log('✅ Connected to MongoDB Atlas!'))
-    .catch(err => console.error('❌ MongoDB Connection Error:', err.message));
+    .then(() => console.log('Connected to MongoDB Atlas!'))
+    .catch(err => console.error('MongoDB Connection Error:', err.message));
 
 // Define the Schema for IoT Time-Series Data
 const telemetrySchema = new mongoose.Schema({
@@ -50,22 +49,25 @@ const telemetrySchema = new mongoose.Schema({
 
 const Telemetry = mongoose.model('Telemetry', telemetrySchema);
 
-// -------------------------------------------------------------------
 // API ROUTES (For Frontend History Fetch)
-// -------------------------------------------------------------------
+
 app.get('/api/history', async (req, res) => {
     try {
-        // Fetch the last 50 data points, sorted from oldest to newest
+        // Fetch the last 50 data points from MongoDB
         const history = await Telemetry.find().sort({ timestamp: -1 }).limit(50);
         res.json(history.reverse());
     } catch (error) {
+        console.error('[API] Error fetching history:', error.message);
         res.status(500).json({ error: 'Failed to fetch history' });
     }
 });
 
-// -------------------------------------------------------------------
+app.get('/', (req, res) => {
+    res.send('CNC Digital Twin Backend is LIVE!');
+});
+
 // MQTT CLIENT & MOCK PRODUCER
-// -------------------------------------------------------------------
+
 let latestMLAlert = false;
 
 // Function to save and broadcast data
@@ -139,13 +141,12 @@ if (IS_MOCK_MODE) {
     }, 500); 
 }
 
-// -------------------------------------------------------------------
 // SOCKET.IO & SERVER START
-// -------------------------------------------------------------------
+
 io.on('connection', (socket) => {
     console.log(`[Socket.io] Client connected: ${socket.id}`);
 });
 
 server.listen(PORT, () => {
-    console.log(`\n🚀 Node.js Backend Server running on port ${PORT}\n`);
+    console.log(`\n Node.js Backend Server running on port ${PORT}\n`);
 });
