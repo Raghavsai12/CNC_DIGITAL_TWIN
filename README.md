@@ -13,7 +13,7 @@ An enterprise-grade Industrial IoT (IIoT) telemetry pipeline designed for high-a
 
 The architecture is fully decoupled, ensuring that edge ingestion, stream processing, and ML inference can scale independently.
 
-![Architecture Diagram](https://via.placeholder.com/800x400.png?text=Architecture+Diagram:+Edge+->+MQTT+->+Node.js+->+React+/+Python+ML) *(Note: Add an actual diagram image here later)*
+![Architecture Diagram](./architecture_diagram.png)
 
 ### 1. The Edge Ingestion Layer (ESP32 / C++)
 * **Sensors:** ADXL345 (3-Axis Accelerometer, I2C) & DS18B20 (Thermal, 1-Wire).
@@ -89,4 +89,3 @@ To validate the architecture without deploying physical hardware to a factory fl
 • Network Partitioning: The Node.js gateway implements automatic MQTT reconnection backoff strategies.
 
 
-Your live Vercel URL looks awesome in there! Commit this to your `main` branch, and when you look at your GitHub repository page, it will automatically render beautifully with all the formatting, bold text, and code blocks intact!
