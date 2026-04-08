@@ -3,7 +3,9 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { Activity, CheckCircle, AlertTriangle, ShieldAlert, Cpu, Wrench, Clock, Target } from 'lucide-react';
 import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:5000');
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+const socket = io(BACKEND_URL);
+
 
 interface TelemetryData { time: string; temp: number; vibX: number; vibY: number; vibZ: number; }
 interface AnomalyLog { id: string; time: string; score: number; machine: string; reason: string; }
@@ -32,7 +34,7 @@ export default function App() {
   const [totalDowntimeSecs, setTotalDowntimeSecs] = useState(0);
 
   useEffect(() => {
-    fetch('http://localhost:5000/api/history')
+    fetch(`${BACKEND_URL}/api/history`)
       .then(res => { if (!res.ok) throw new Error('Backend history route failed'); return res.json(); })
       // --- FIX APPLIED HERE: Replaced (historyData: any) with (historyData: HistoryRecord[]) ---
       .then((historyData: HistoryRecord[]) => {
