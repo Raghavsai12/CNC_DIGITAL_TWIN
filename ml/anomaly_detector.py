@@ -5,9 +5,7 @@ from collections import deque
 from sklearn.ensemble import IsolationForest
 import paho.mqtt.client as mqtt
 
-# -------------------------------------------------------------------
 # CONFIGURATION
-# -------------------------------------------------------------------
 BROKER = "broker.hivemq.com"
 PORT = 1883
 TOPIC_TELEMETRY = "griet/cnc/telemetry"
@@ -16,88 +14,80 @@ TOPIC_ALERTS = "griet/cnc/alerts"
 BUFFER_SIZE = 100
 data_buffer = deque(maxlen=BUFFER_SIZE)
 
-# -------------------------------------------------------------------
-# HYBRID FAULT DETECTION ENGINE
-# -------------------------------------------------------------------
 def check_hybrid_fault(current_point):
     reasons = []
     is_fault = False
 
-    # --- 1. Physics Layer: Temperature ---
+    # 1. Temperature Thresholds (Laser Chiller Loop)
     temp = current_point.get('temp', 0)
-    if temp > 60.0:
-        reasons.append(f"Critical Overheating ({temp:.1f}°C)")
+    if temp > 50.0:
+        reasons.append(f"Critical Laser Overheating ({temp:.1f}°C)")
         is_fault = True
     elif temp > 45.0:
-        reasons.append(f"Elevated Spindle Temp ({temp:.1f}°C)")
+        reasons.append(f"Elevated Chiller Temp ({temp:.1f}°C)")
         is_fault = True
 
-    # --- 2. Physics Layer: Vibration (G-Force) ---
-    vx = abs(current_point.get('vibration_x', 0))
-    vy = abs(current_point.get('vibration_y', 0))
-    vz = abs(current_point.get('vibration_z', 0))
-    max_vib = max(vx, vy, vz)
+    # 2. Acceleration Thresholds (Head motion crash)
+    ax = abs(current_point.get('accel_x', 0))
+    ay = abs(current_point.get('accel_y', 0))
+    max_accel = max(ax, ay)
 
-    # 1.5G+ is an absolute collision
-    if max_vib > 2.5:
+    # 1.8G+ is considered a violent crash or belt slip for the laser
+    if max_accel > 1.8:
         axis_details = []
-        if vx > 2.5: axis_details.append(f"X({vx:.1f}G)")
-        if vy > 2.5: axis_details.append(f"Y({vy:.1f}G)")
-        if vz > 2.5: axis_details.append(f"Z({vz:.1f}G)")
-        reasons.append(f"Extreme Axis Force: {', '.join(axis_details)}")
+        if ax > 1.8: axis_details.append(f"X({ax:.1f}G)")
+        if ay > 1.8: axis_details.append(f"Y({ay:.1f}G)")
+        reasons.append(f"Violent Head Acceleration: {', '.join(axis_details)}")
         is_fault = True
 
-    # 1.3G+ is dangerous tool chatter
-    elif max_vib > 1.3:
-        reasons.append(f"Abnormal Tool Chatter ({max_vib:.1f}G)")
+    # 3. Air Gas Pressure Thresholds (Assist Gas)
+    gas = current_point.get('air_gas', 0.8)
+    if gas < 0.6:
+        reasons.append(f"Assist Gas Pressure Drop ({gas:.2f} MPa)")
+        is_fault = True
+    elif gas > 1.2:
+        reasons.append(f"Assist Gas Overpressure ({gas:.2f} MPa)")
         is_fault = True
 
-    ml_score = max_vib
+    ml_score = max_accel
 
-    # --- 3. Machine Learning Layer: Isolation Forest ---
-    # ONLY run AI if we have 20 points AND the machine is actually vibrating enough to cut metal (> 0.1G)
-    if len(data_buffer) >= 20 and max_vib > 0.1:
+    # 4. Machine Learning Layer: Isolation Forest
+    if len(data_buffer) >= 20 and (max_accel > 0.1 or temp > 20):
         df = pd.DataFrame(list(data_buffer))
-        features = df[['temp', 'vibration_x', 'vibration_y', 'vibration_z']]
+        features = df[['temp', 'accel_x', 'accel_y', 'air_gas']]
 
         model = IsolationForest(n_estimators=50, contamination='auto', random_state=42)
         model.fit(features)
 
         current_features = pd.DataFrame([[
             temp,
-            current_point.get('vibration_x', 0),
-            current_point.get('vibration_y', 0),
-            current_point.get('vibration_z', 0)
-        ]], columns=['temp', 'vibration_x', 'vibration_y', 'vibration_z'])
+            current_point.get('accel_x', 0),
+            current_point.get('accel_y', 0),
+            current_point.get('air_gas', 0.8)
+        ]], columns=['temp', 'accel_x', 'accel_y', 'air_gas'])
 
         prediction = model.predict(current_features)[0] # -1 = Anomaly, 1 = Normal
         ml_score = model.decision_function(current_features)[0]
 
-    """  if prediction == -1 and ml_score < -0.1 and not is_fault:
-            primary_axis = "X"
-            if vy > vx and vy > vz: primary_axis = "Y"
-            elif vz > vx and vz > vy: primary_axis = "Z"
+        # If the ML model flags it as an anomaly but the hard limits haven't tripped yet
+        if prediction == -1 and ml_score < -0.1 and not is_fault:
+            reasons.append("AI Detected Kinematic/Gas Deviation")
+            is_fault = True
 
-            reasons.append(f"AI Signature Deviation (Primary: {primary_axis}-Axis)")
-            is_fault = True"""
-            
     return is_fault, " | ".join(reasons), ml_score
 
-# -------------------------------------------------------------------
+
 # MQTT EVENT HANDLERS
-# -------------------------------------------------------------------
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         client.subscribe(TOPIC_TELEMETRY)
-        print("✅ AI Node Connected to Broker")
+        print("✅ Laser AI Watchdog Connected to Broker")
     else:
         print(f"❌ Connection Failed with code {rc}")
 
 def on_message(client, userdata, msg):
     try:
         payload = json.loads(msg.payload.decode())
-
-        # CRITICAL FIX: Properly exit the function if the machine is IDLE
         if payload.get("status") == "IDLE" or payload.get("status") == "HALTED":
             return
 
@@ -108,7 +98,7 @@ def on_message(client, userdata, msg):
             print(f"🚨 ALERT DETECTED: {reason_text}")
             alert_msg = {
                 "type": "RED_ALERT",
-                "machine": payload.get('serial_no', 'UNKNOWN'),
+                "machine": payload.get('serial_no', 'LASER-001'),
                 "score": float(score),
                 "reason": reason_text,
                 "timestamp": int(time.time() * 1000)
@@ -116,14 +106,12 @@ def on_message(client, userdata, msg):
             client.publish(TOPIC_ALERTS, json.dumps(alert_msg), qos=1)
 
     except Exception as e:
-        pass # Ignore malformed JSON
+        # Silently pass errors so the watchdog doesn't crash on bad JSON
+        pass
 
-# -------------------------------------------------------------------
-# MAIN STARTUP LOOP
-# -------------------------------------------------------------------
 if __name__ == "__main__":
-    print("🧠 Starting Hybrid AI Watchdog...")
-    client = mqtt.Client("cnc_ml_node_01")
+    print("Starting Laser Hybrid AI Watchdog...")
+    client = mqtt.Client("laser_ml_node_01")
     client.on_connect = on_connect
     client.on_message = on_message
 
@@ -131,4 +119,4 @@ if __name__ == "__main__":
         client.connect(BROKER, PORT, 60)
         client.loop_forever()
     except KeyboardInterrupt:
-        print("\n🛑 AI Node shutting down gracefully...")
+        print("\n AI Node shutting down gracefully...")
