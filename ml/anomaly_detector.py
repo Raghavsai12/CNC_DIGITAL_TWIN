@@ -95,7 +95,7 @@ def on_message(client, userdata, msg):
         is_fault, reason_text, score = check_hybrid_fault(payload)
 
         if is_fault:
-            print(f"🚨 ALERT DETECTED: {reason_text}")
+            print(f" ALERT DETECTED: {reason_text}")
             alert_msg = {
                 "type": "RED_ALERT",
                 "machine": payload.get('serial_no', 'LASER-001'),

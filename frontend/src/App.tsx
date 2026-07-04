@@ -247,7 +247,7 @@ return (
 </div>
 
 {/* THE RECHARTS GRAPH */}
-<div className='flex-1 w-full' style={{ minHeight: '400px' }}>
+<div className='flex-1 w-full' style={{ minHeight: '200px' }}>
 <ResponsiveContainer width='100%' height='100%'>
 <LineChart data={data} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
 <CartesianGrid strokeDasharray='3 3' stroke='#1f2937' vertical={false} />
